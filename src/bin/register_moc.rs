@@ -13,7 +13,10 @@ use boom_moc_index::{moc, MocIndex, MocMetadata, DEFAULT_INDEX_DEPTH};
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "register-moc", about = "Register a MOC into the Valkey meta-index")]
+#[command(
+    name = "register-moc",
+    about = "Register a MOC into the Valkey meta-index"
+)]
 struct Args {
     /// Path to a HEALPix skymap FITS (will be thresholded at --credible-level)
     #[arg(long, conflicts_with = "moc_path")]
@@ -36,7 +39,7 @@ struct Args {
     trigger_time: String,
 
     /// Credible level used when thresholding a skymap (ignored if --moc is given)
-    #[arg(long, default_value_t = 0.9)]
+    #[arg(long, default_value_t = 0.95)]
     credible_level: f64,
 
     /// Validity window in seconds (TTL on all Valkey keys)

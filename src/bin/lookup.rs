@@ -32,7 +32,12 @@ async fn main() -> anyhow::Result<()> {
 
     if args.candidates_only {
         let ids = idx.lookup_candidates_only(args.ra, args.dec).await?;
-        println!("{} candidate MOCs at ({}, {}):", ids.len(), args.ra, args.dec);
+        println!(
+            "{} candidate MOCs at ({}, {}):",
+            ids.len(),
+            args.ra,
+            args.dec
+        );
         for id in ids {
             println!("  {}", id);
         }

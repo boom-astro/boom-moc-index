@@ -9,9 +9,6 @@ The MOCs themselves live outside the alert database — only an inverted
 index `cell → set of MOC IDs` is kept hot in Valkey, so a lookup is one
 SET read regardless of how many MOCs are active.
 
-This is a demo / benchmark for the Schmidt Observatory System Broker
-proposal, not production code. Single Valkey, single process, no auth.
-
 ## Architecture
 
 ```
@@ -19,7 +16,7 @@ proposal, not production code. Single Valkey, single process, no auth.
    GCN Kafka ───────▶│  gcn-listener    │── MOC ──▶ Valkey
    (igwn.gwalert,     │ (skymap → MOC    │           ┌─────────────────────────────┐
     swift.bat.guano,  │  at credible     │           │ mocidx:cell:{depth}:{cell}  │
-    icecube, …)       │  level=0.9)      │           │   SET of MOC IDs            │
+    icecube, …)       │  level=0.95)     │           │   SET of MOC IDs            │
                      └──────────────────┘           │ mocidx:fits:{moc_id}        │
                                                      │   IVOA MOC FITS (TTL'd)     │
    alert ─── (ra, dec) ────▶  lookup  ─────────────▶│ mocidx:meta:{moc_id}        │
@@ -59,7 +56,7 @@ cargo build --release
 ## Live GCN ingest
 
 `gcn-listener` subscribes to GCN Kafka, decodes embedded skymaps from
-each alert, builds a MOC at `credible_level=0.9`, and registers it.
+each alert, builds a MOC at `credible_level=0.95`, and registers it.
 
 ```sh
 cp .env.example .env             # then fill in GCN_CLIENT_ID / SECRET
@@ -107,10 +104,6 @@ Single-thread, candidates-only:
 Crossover at N≈10. Below that, Python wins because there's no Valkey
 round-trip. Above, boom-moc-index is flat (one SET read regardless of N)
 while the per-alert iteration grows linearly.
-
-The Python baseline runs in conda env `boom`
-(`/Users/mcoughlin/miniforge3/envs/boom/bin/python`, created with
-`python=3.12 astropy`, then `pip install mocpy matplotlib`).
 
 ## Layout
 

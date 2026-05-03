@@ -47,7 +47,7 @@ pub struct MocMetadata {
     pub source: String,
     /// Trigger time as ISO-8601 UTC.
     pub trigger_time: String,
-    /// Credible level used (e.g. 0.9 for the 90% region).
+    /// Credible level used (e.g. 0.95 for the 95% region).
     pub credible_level: f64,
     /// Validity window in seconds.
     pub validity_seconds: u64,
@@ -85,9 +85,7 @@ impl MocIndex {
         Ok(Self {
             conn,
             depth,
-            moc_cache: Arc::new(Mutex::new(LruCache::new(
-                NonZeroUsize::new(1024).unwrap(),
-            ))),
+            moc_cache: Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(1024).unwrap()))),
         })
     }
 
@@ -220,8 +218,7 @@ impl MocIndex {
 
     /// Drop all keys we own. Useful for tests and benchmarks.
     pub async fn flush_all(&mut self) -> anyhow::Result<()> {
-        let mut iter: redis::AsyncIter<String> =
-            self.conn.scan_match("mocidx:*").await?;
+        let mut iter: redis::AsyncIter<String> = self.conn.scan_match("mocidx:*").await?;
         let mut keys: Vec<String> = Vec::new();
         while let Some(k) = iter.next_item().await {
             keys.push(k);

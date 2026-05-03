@@ -29,3 +29,6 @@ data/skymaps/
 
 # Comparison sweep outputs
 comparison/results/
+
+# Claude Code session state (machine-local)
+.claude/

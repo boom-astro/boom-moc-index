@@ -57,10 +57,7 @@ pub fn moc_from_fits_bytes(bytes: &[u8]) -> anyhow::Result<HpxMoc> {
 
 /// Parse an *implicit-indexing* HEALPix skymap (single resolution, one row per
 /// pixel in NESTED order) and threshold at the given cumulative credible level.
-pub fn moc_from_implicit_skymap_bytes(
-    bytes: &[u8],
-    credible_level: f64,
-) -> anyhow::Result<HpxMoc> {
+pub fn moc_from_implicit_skymap_bytes(bytes: &[u8], credible_level: f64) -> anyhow::Result<HpxMoc> {
     let reader = BufReader::new(Cursor::new(bytes));
     from_fits_skymap(
         reader,
@@ -136,35 +133,48 @@ pub fn position_to_cell(ra_deg: f64, dec_deg: f64, depth: u8) -> u64 {
 mod tests {
     use super::*;
 
-    fn fixture_skymap_path(idx: u32) -> String {
-        format!(
-            "/Users/mcoughlin/Code/ORIGIN/observing-scenarios/runs/O4HL/bgp/allsky/{}.fits",
-            idx
-        )
+    /// Decode the multi-order skymap bundled at
+    /// `tests/fixtures/igwn_gwalert_sample.json` (a captured igwn.gwalert
+    /// payload with a base64-inline `event.skymap`). Used by tests that need
+    /// real BAYESTAR-style FITS bytes without depending on external data.
+    fn fixture_skymap_bytes() -> Vec<u8> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/igwn_gwalert_sample.json"
+        );
+        let payload = std::fs::read_to_string(path).expect("fixture payload missing");
+        let json: serde_json::Value =
+            serde_json::from_str(&payload).expect("fixture is valid JSON");
+        let b64 = json
+            .pointer("/event/skymap")
+            .and_then(|v| v.as_str())
+            .expect("fixture has /event/skymap");
+        STANDARD
+            .decode(b64.as_bytes())
+            .expect("fixture skymap is valid base64")
     }
 
     #[test]
-    fn test_parse_origin_skymap() {
-        let bytes = std::fs::read(fixture_skymap_path(0)).expect("ORIGIN test skymap missing");
-        let moc = moc_from_skymap_bytes(&bytes, 0.9).expect("parse skymap");
+    fn parse_bundled_skymap() {
+        let bytes = fixture_skymap_bytes();
+        let moc = moc_from_skymap_bytes(&bytes, 0.95).expect("parse skymap");
         let coverage = moc.coverage_percentage();
         assert!(coverage > 0.0 && coverage < 1.0);
     }
 
     #[test]
-    fn test_degraded_cells() {
-        let bytes = std::fs::read(fixture_skymap_path(0)).expect("ORIGIN test skymap missing");
-        let moc = moc_from_skymap_bytes(&bytes, 0.9).expect("parse skymap");
+    fn degraded_cells_grow_with_depth() {
+        let bytes = fixture_skymap_bytes();
+        let moc = moc_from_skymap_bytes(&bytes, 0.95).expect("parse skymap");
         let cells_d4 = degraded_cells_at_depth(&moc, 4);
         let cells_d6 = degraded_cells_at_depth(&moc, 6);
-        // Higher depth → more cells covering the same MOC
         assert!(cells_d6.len() >= cells_d4.len());
         assert!(!cells_d4.is_empty());
     }
 
     #[test]
-    fn test_position_to_cell_round_trip() {
-        // A position should be covered by the cell it maps to
+    fn position_in_its_own_cell() {
         let ra = 120.0_f64;
         let dec = 30.0_f64;
         let depth = 6;
@@ -175,6 +185,22 @@ mod tests {
             + (back_dec_rad.to_degrees() - dec).powi(2))
         .sqrt();
         // Cell at depth 6 is ~1 deg across, so center within 1 deg of the input
-        assert!(dist_deg < 1.0, "cell center too far from input: {}", dist_deg);
+        assert!(
+            dist_deg < 1.0,
+            "cell center too far from input: {}",
+            dist_deg
+        );
+    }
+
+    #[test]
+    fn registered_moc_contains_query_position() {
+        let bytes = fixture_skymap_bytes();
+        let moc = moc_from_skymap_bytes(&bytes, 0.95).expect("parse skymap");
+        // Pick the center of the first depth-6 cell the MOC covers; that
+        // position must be inside the MOC by construction.
+        let cells = degraded_cells_at_depth(&moc, 6);
+        let first = *cells.first().expect("MOC covers at least one cell");
+        let (ra_rad, dec_rad) = cdshealpix::nested::get(6).center(first);
+        assert!(is_in_moc(&moc, ra_rad.to_degrees(), dec_rad.to_degrees()));
     }
 }

@@ -106,8 +106,7 @@ async fn main() -> anyhow::Result<()> {
 
     for i in 0..args.n_mocs {
         let path = format!("{}/{}.fits", args.skymap_dir, i);
-        let raw = std::fs::read(&path)
-            .map_err(|e| anyhow::anyhow!("read {}: {}", path, e))?;
+        let raw = std::fs::read(&path).map_err(|e| anyhow::anyhow!("read {}: {}", path, e))?;
         let hpx_moc = moc::moc_from_skymap_bytes(&raw, args.credible_level)?;
         // Re-encode as IVOA MOC FITS so we can re-parse on the precise check.
         let bytes = moc::moc_to_fits_bytes(&hpx_moc)?;

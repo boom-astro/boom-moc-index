@@ -2,7 +2,7 @@
 //!
 //! Subscribes to live GCN topics on `gcn.nasa.gov`, decodes the embedded or
 //! linked HEALPix skymap from each alert, thresholds it at the configured
-//! credible level (default 0.9), and registers the resulting MOC into the
+//! credible level (default 0.95), and registers the resulting MOC into the
 //! Valkey-backed [`MocIndex`].
 //!
 //! Mirrors the consumer loop in
@@ -12,11 +12,11 @@
 //!
 //! Credentials are read from `.env` at the repo root (loaded via `dotenvy`).
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 #[allow(unused_imports)]
 use boom_moc_index::moc::MocHasMaxDepth;
 use boom_moc_index::{moc, MocIndex, MocMetadata, DEFAULT_INDEX_DEPTH};
-use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine as _;
 use chrono::Utc;
 use clap::Parser;
 use rdkafka::{
@@ -149,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
     let credible_level: f64 = std::env::var("CREDIBLE_LEVEL")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0.9);
+        .unwrap_or(0.95);
     let validity_seconds: u64 = std::env::var("VALIDITY_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -195,13 +195,11 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|_| anyhow::anyhow!("GCN_CLIENT_ID not set (check .env)"))?;
     let client_secret = std::env::var("GCN_CLIENT_SECRET")
         .map_err(|_| anyhow::anyhow!("GCN_CLIENT_SECRET not set (check .env)"))?;
-    let group_id =
-        std::env::var("GCN_GROUP_ID").unwrap_or_else(|_| "boom-moc-index".to_string());
+    let group_id = std::env::var("GCN_GROUP_ID").unwrap_or_else(|_| "boom-moc-index".to_string());
     // Default to earliest so a fresh consumer picks up the broker's recent
     // backlog (a few days of buffered alerts on each topic). Override with
     // GCN_OFFSET_RESET=latest for tail-only.
-    let offset_reset =
-        std::env::var("GCN_OFFSET_RESET").unwrap_or_else(|_| "earliest".to_string());
+    let offset_reset = std::env::var("GCN_OFFSET_RESET").unwrap_or_else(|_| "earliest".to_string());
 
     let mut config = ClientConfig::new();
     config.set("bootstrap.servers", "kafka.gcn.nasa.gov");
@@ -393,7 +391,10 @@ async fn fetch_with_retry(http: &reqwest::Client, url: &str) -> anyhow::Result<V
         }
         if attempt < MAX_RETRIES {
             let wait = 2u64.pow(attempt - 1);
-            warn!("fetch {} attempt {}/{} failed; retrying in {}s", url, attempt, MAX_RETRIES, wait);
+            warn!(
+                "fetch {} attempt {}/{} failed; retrying in {}s",
+                url, attempt, MAX_RETRIES, wait
+            );
             tokio::time::sleep(Duration::from_secs(wait)).await;
         }
     }
@@ -414,7 +415,11 @@ fn derive_moc_id(topic: &str, json: &Value) -> String {
             return format!("{}-{}", short_topic(topic), v);
         }
     }
-    format!("{}-{}", short_topic(topic), Utc::now().format("%Y%m%dT%H%M%SZ"))
+    format!(
+        "{}-{}",
+        short_topic(topic),
+        Utc::now().format("%Y%m%dT%H%M%SZ")
+    )
 }
 
 fn derive_trigger_time(json: &Value) -> String {

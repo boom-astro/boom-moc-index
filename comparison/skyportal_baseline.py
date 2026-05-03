@@ -42,7 +42,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--n-mocs", type=int, default=10)
     p.add_argument("--n-queries", type=int, default=10_000)
-    p.add_argument("--credible-level", type=float, default=0.9)
+    p.add_argument("--credible-level", type=float, default=0.95)
     p.add_argument(
         "--skymap-dir",
         type=Path,
