@@ -5,11 +5,6 @@
 //! credible level (default 0.95), and registers the resulting MOC into the
 //! Valkey-backed [`MocIndex`].
 //!
-//! Mirrors the consumer loop in
-//! `/Users/mcoughlin/Code/ORIGIN/origin/crates/mm-service/src/main.rs` and the
-//! reqwest + exponential-backoff fetch in
-//! `/Users/mcoughlin/Code/ORIGIN/origin/crates/mm-core/src/skymap_storage.rs`.
-//!
 //! Credentials are read from `.env` at the repo root (loaded via `dotenvy`).
 
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -19,86 +14,14 @@ use boom_moc_index::moc::MocHasMaxDepth;
 use boom_moc_index::{moc, MocIndex, MocMetadata, DEFAULT_INDEX_DEPTH};
 use chrono::Utc;
 use clap::Parser;
+use gcn_kafka::GcnClientConfig;
 use rdkafka::{
-    client::{ClientContext, OAuthToken},
-    consumer::{Consumer, ConsumerContext, StreamConsumer},
+    consumer::{Consumer, StreamConsumer},
     ClientConfig, Message,
 };
-use serde::Deserialize;
 use serde_json::Value;
-use std::error::Error;
 use std::time::Duration;
 use tracing::{error, info, warn};
-
-/// Custom rdkafka context that supplies OAUTHBEARER tokens for GCN.
-///
-/// librdkafka's built-in OIDC token fetcher is broken on macOS — the SASL
-/// handshake never completes, the consumer sits silently with zero traffic.
-/// We bypass it and fetch the token ourselves via curl, exactly like ORIGIN's
-/// `crates/mm-service/src/bin/gcn_correlator.rs` does.
-struct GcnContext {
-    client_id: String,
-    client_secret: String,
-}
-
-impl ClientContext for GcnContext {
-    const ENABLE_REFRESH_OAUTH_TOKEN: bool = true;
-
-    fn generate_oauth_token(
-        &self,
-        _oauthbearer_config: Option<&str>,
-    ) -> Result<OAuthToken, Box<dyn Error>> {
-        info!("Fetching OAuth token from auth.gcn.nasa.gov...");
-        let output = std::process::Command::new("curl")
-            .args([
-                "-s",
-                "-X",
-                "POST",
-                "https://auth.gcn.nasa.gov/oauth2/token",
-                "-H",
-                "Content-Type: application/x-www-form-urlencoded",
-                "-d",
-                &format!(
-                    "grant_type=client_credentials&client_id={}&client_secret={}&scope={}",
-                    self.client_id, self.client_secret, "gcn.nasa.gov/kafka-public-consumer"
-                ),
-            ])
-            .output()
-            .map_err(|e| format!("Failed to run curl: {e}"))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("curl failed: {stderr}").into());
-        }
-
-        let body = String::from_utf8(output.stdout)
-            .map_err(|e| format!("Invalid UTF-8 from token endpoint: {e}"))?;
-
-        #[derive(Deserialize)]
-        struct TokenResponse {
-            access_token: String,
-            expires_in: u64,
-        }
-
-        let resp: TokenResponse = serde_json::from_str(&body)
-            .map_err(|e| format!("Failed to parse token response: {e} (body: {body})"))?;
-
-        let lifetime_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64
-            + (resp.expires_in as i64 * 1000);
-
-        info!("OAuth token obtained (expires in {}s)", resp.expires_in);
-        Ok(OAuthToken {
-            token: resp.access_token,
-            principal_name: "boom-moc-index".to_string(),
-            lifetime_ms,
-        })
-    }
-}
-
-impl ConsumerContext for GcnContext {}
 
 /// JSON topics that are accessible to public-consumer credentials. Mirrors
 /// ORIGIN's `Config::development()` default list. LVK is quiet during O5
@@ -202,9 +125,7 @@ async fn main() -> anyhow::Result<()> {
     let offset_reset = std::env::var("GCN_OFFSET_RESET").unwrap_or_else(|_| "earliest".to_string());
 
     let mut config = ClientConfig::new();
-    config.set("bootstrap.servers", "kafka.gcn.nasa.gov");
-    config.set("security.protocol", "sasl_ssl");
-    config.set("sasl.mechanisms", "OAUTHBEARER");
+    config.set_gcn_auth(&client_id, &client_secret, None);
     config.set("group.id", &group_id);
     config.set("session.timeout.ms", "45000");
     config.set("enable.auto.commit", "false");
@@ -213,11 +134,7 @@ async fn main() -> anyhow::Result<()> {
         config.set("debug", &debug);
     }
 
-    let context = GcnContext {
-        client_id: client_id.clone(),
-        client_secret: client_secret.clone(),
-    };
-    let consumer: StreamConsumer<GcnContext> = config.create_with_context(context)?;
+    let consumer: StreamConsumer = config.create()?;
     let mut topics: Vec<&str> = DEFAULT_TOPICS.to_vec();
     if std::env::var("GCN_LOG_HEARTBEAT").is_ok() {
         topics.push("gcn.heartbeat");

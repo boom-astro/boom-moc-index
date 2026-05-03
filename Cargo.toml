@@ -51,10 +51,10 @@ parking_lot = "0.12"
 lru = "0.12"
 
 # GCN Kafka listener.
-# We bypass `gcn-kafka` because its `set_gcn_auth` relies on librdkafka's
-# built-in OIDC token fetcher, which is broken on macOS. We supply tokens via
-# a custom rdkafka ClientContext (see src/bin/gcn_listener.rs).
-rdkafka = { version = "0.39", features = ["tokio", "ssl-vendored", "curl", "cmake-build", "zstd"] }
+# `curl-static` (instead of `curl`) avoids a two-libssl deadlock on macOS
+# between the binary's vendored OpenSSL and system libcurl's separate libssl.
+gcn-kafka = "0.1"
+rdkafka = { version = "0.39", features = ["tokio", "ssl-vendored", "curl-static", "cmake-build", "zstd"] }
 dotenvy = "0.15"
 reqwest = { version = "0.12", features = ["rustls-tls"] }
 base64 = "0.22"
