@@ -1,0 +1,61 @@
+[package]
+name = "boom-moc-index"
+version = "0.1.0"
+edition = "2021"
+description = "Streaming meta-index of HEALPix MOCs in Valkey for sub-millisecond skymap-overlap lookup at alert-broker scale"
+license = "MIT"
+
+[[bin]]
+name = "register-moc"
+path = "src/bin/register_moc.rs"
+
+[[bin]]
+name = "lookup"
+path = "src/bin/lookup.rs"
+
+[[bin]]
+name = "benchmark"
+path = "src/bin/benchmark.rs"
+
+[[bin]]
+name = "gcn-listener"
+path = "src/bin/gcn_listener.rs"
+
+[dependencies]
+# HEALPix / MOC
+cdshealpix = "0.7"
+moc = "0.19"
+
+# Valkey / Redis
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Utility
+rand = "0.9"
+futures = "0.3"
+comfy-table = "7"
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }
+parking_lot = "0.12"
+lru = "0.12"
+
+# GCN Kafka listener.
+# We bypass `gcn-kafka` because its `set_gcn_auth` relies on librdkafka's
+# built-in OIDC token fetcher, which is broken on macOS. We supply tokens via
+# a custom rdkafka ClientContext (see src/bin/gcn_listener.rs).
+rdkafka = { version = "0.39", features = ["tokio", "ssl-vendored", "curl", "cmake-build", "zstd"] }
+dotenvy = "0.15"
+reqwest = { version = "0.12", features = ["rustls-tls"] }
+base64 = "0.22"
+chrono = "0.4"
